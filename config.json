@@ -19,7 +19,27 @@
         "time": ["08:00","22:30"],
         "roomid":"13480",
         "seatid":["616"],
-        "daysofweek": ["Wednesday","Thursday","Friday","Saturday"]
+        "daysofweek": ["Wednesday","Thursday"]
+
+            
+    },
+         {"username": "******",
+        "password": "******",
+        "time": ["08:00","13:30"],
+        "roomid":"13480",
+        "seatid":["616"],
+        "daysofweek": ["Friday"]
+
+            
+    },     
+        {"username": "******",
+        "password": "******",
+        "time": ["13:00","22:30"],
+        "roomid":"13480",
+        "seatid":["616"],
+        "daysofweek": ["Saturday"]
+
+            
     },
         {"username": "*******",
         "password": "*******",
