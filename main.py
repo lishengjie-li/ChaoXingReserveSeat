@@ -80,6 +80,28 @@ def main(users, action=False):
     today_reservation_num = sum(
         1 for d in users if current_dayofweek in d.get("daysofweek")
     )
+
+
+    target_hour = 19
+    target_minute = 59
+    target_second = 40
+    target_wait=0
+    logging.info(f"等待到 {target_hour:02d}:{target_minute:02d}:{target_second:02d} 再开始抢座...")
+
+    while True:
+        now_ts = time.time() + (8 * 3600 if action else 0)
+        now = time.localtime(now_ts)
+        if (now.tm_hour == target_hour and
+            now.tm_min == target_minute and
+            now.tm_sec >= target_second):
+            break
+        time.sleep(0.5)
+        target_wait=target_wait+1
+        if(target_wait%10==0):
+            logging.info("wait ")
+
+    logging.info("时间到！开始抢座！")
+
     while current_time < ENDTIME:
         attempt_times += 1
         # try:
