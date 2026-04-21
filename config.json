@@ -9,7 +9,7 @@
     },
         {"username": "*****",
         "password": "******",
-        "time": ["09:30","22:30"],
+        "time": ["08:00","22:30"],
         "roomid":"13480",
         "seatid":["618"],
         "daysofweek": ["Tuesday"]
