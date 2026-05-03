@@ -24,7 +24,7 @@ get_current_dayofweek = lambda action: (
 
 
 SLEEPTIME = 0.2  # 每次抢座的间隔
-ENDTIME = "20:01:00"  # 根据学校的预约座位时间+1min即可
+ENDTIME = "08:30:00"  # 根据学校的预约座位时间+1min即可
 
 ENABLE_SLIDER = True  # 是否有滑块验证
 MAX_ATTEMPT = 5  # 最大尝试次数
@@ -88,7 +88,7 @@ def main(users, action=False):
     target_wait=0
     logging.info(f"等待到 {target_hour:02d}:{target_minute:02d}:{target_second:02d} 再开始抢座...")
 
-    while True:
+    while False:
         now_ts = time.time() + (8 * 3600 if action else 0)
         now = time.localtime(now_ts)
         if (now.tm_hour == target_hour and
