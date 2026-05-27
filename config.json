@@ -18,7 +18,7 @@
         "password": "******",
         "time": ["08:00","22:30"],
         "roomid":"13480",
-        "seatid":["618"],
+        "seatid":["630"],
         "daysofweek": ["Wednesday","Thursday"]
 
             
@@ -36,7 +36,7 @@
         "password": "******",
         "time": ["08:00","22:30"],
         "roomid":"13480",
-        "seatid":["618"],
+        "seatid":["603"],
         "daysofweek": ["Saturday"]
 
             
@@ -45,7 +45,7 @@
         "password": "*******",
         "time": ["08:00","22:30"],
         "roomid":"13480",
-        "seatid":["618"],
+        "seatid":["603"],
         "daysofweek": ["Sunday"]
     }
     ]
