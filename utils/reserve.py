@@ -18,7 +18,7 @@ def get_date(day_offset: int = 0):
 class reserve:
     def __init__(
         self,
-        sleep_time=0.0,
+        sleep_time=0.1,
         max_attempt=50,
         enable_slider=False,
         reserve_next_day=False,
