@@ -23,11 +23,11 @@ get_current_dayofweek = lambda action: (
 )
 
 
-SLEEPTIME = 0.1  # 每次抢座的间隔
+SLEEPTIME = 0.05  # 每次抢座的间隔，缩短等待时间
 ENDTIME = "20:01:00"  # 根据学校的预约座位时间+1min即可
 
 ENABLE_SLIDER = True  # 是否有滑块验证
-MAX_ATTEMPT = 5  # 最大尝试次数
+MAX_ATTEMPT = 10  # 最大尝试次数，增加重试
 RESERVE_NEXT_DAY = False  # 预约明天而不是今天的
 
 
@@ -54,15 +54,19 @@ def login_and_reserve(users, usernames, passwords, action, success_list=None):
             logging.info(
                 f"----------- {username} -- {times} -- {seatid} try -----------"
             )
-            s = reserve(
-                sleep_time=SLEEPTIME,
-                max_attempt=MAX_ATTEMPT,
-                enable_slider=ENABLE_SLIDER,
-                reserve_next_day=RESERVE_NEXT_DAY,
-            )
-            s.get_login_status()
-            s.login(username, password)
-            s.requests.headers.update({"Host": "office.chaoxing.com"})
+            # 复用提前登录的 session，避免重复登录浪费时间
+            s = user.get("session_obj")
+            if s is None:
+                s = reserve(
+                    sleep_time=SLEEPTIME,
+                    max_attempt=MAX_ATTEMPT,
+                    enable_slider=ENABLE_SLIDER,
+                    reserve_next_day=RESERVE_NEXT_DAY,
+                )
+                s.get_login_status()
+                s.login(username, password)
+                s.requests.headers.update({"Host": "office.chaoxing.com"})
+                user["session_obj"] = s
             suc = s.submit(times, roomid, seatid, action)
             success_list[index] = suc
     return success_list
@@ -84,9 +88,32 @@ def main(users, action=False):
 
     target_hour = 19
     target_minute = 59
-    target_second = 58
-    target_wait=0
+    target_second = 59  # 提前1秒开始，更激进
+    target_wait = 0
     logging.info(f"等待到 {target_hour:02d}:{target_minute:02d}:{target_second:02d} 再开始抢座...")
+
+    # 提前登录，到点直接抢，不用浪费时间登录
+    for index, user in enumerate(users):
+        username, password, times, roomid, seatid, daysofweek = user.values()
+        if action:
+            username, password = (
+                usernames.split(",")[index],
+                passwords.split(",")[index],
+            )
+        if current_dayofweek not in daysofweek:
+            continue
+        logging.info(f"提前登录 {username} ...")
+        s = reserve(
+            sleep_time=SLEEPTIME,
+            max_attempt=MAX_ATTEMPT,
+            enable_slider=ENABLE_SLIDER,
+            reserve_next_day=RESERVE_NEXT_DAY,
+        )
+        s.get_login_status()
+        s.login(username, password)
+        s.requests.headers.update({"Host": "office.chaoxing.com"})
+        user["session_obj"] = s
+        logging.info(f"{username} 登录成功，等待抢座时间...")
 
     while True:
         now_ts = time.time() + (8 * 3600 if action else 0)
@@ -95,21 +122,18 @@ def main(users, action=False):
             now.tm_min == target_minute and
             now.tm_sec >= target_second):
             break
-        time.sleep(0.5)
-        target_wait=target_wait+1
-        if(target_wait%10==0):
+        time.sleep(0.1)  # 更短检查间隔，减少延迟
+        target_wait = target_wait + 1
+        if target_wait % 50 == 0:
             logging.info("wait ")
 
     logging.info("时间到！开始抢座！")
 
     while current_time < ENDTIME:
         attempt_times += 1
-        # try:
         success_list = login_and_reserve(
             users, usernames, passwords, action, success_list
         )
-        # except Exception as e:
-        #     print(f"An error occurred: {e}")
         print(
             f"attempt time {attempt_times}, time now {current_time}, success list {success_list}"
         )
