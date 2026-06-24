@@ -234,7 +234,7 @@ class reserve:
     def submit(self, times, roomid, seatid, action):
         for seat in seatid:
             suc = False
-            while ~suc and self.max_attempt > 0:
+            while not suc and self.max_attempt > 0:
                 token, value = self._get_page_token(
                     self.url.format(roomid, seat), require_value=True
                 )
