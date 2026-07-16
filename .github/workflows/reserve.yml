@@ -22,7 +22,7 @@ jobs:
           # Ubuntu 24.04 正确包名：libgl1 替代废弃的 libgl1-mesa-glx
           sudo apt-get update
           sudo apt-get install build-essential libssl-dev libffi-dev python3-dev libgl1 libglib2.0-0 -y
-          pip install -r requirements.txt
+          pip install cryptography requests opencv-python curl_cffi
 
       - name: run script
         env:
