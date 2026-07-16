@@ -24,12 +24,14 @@ class reserve:
     _CHROME_POOL = [120, 120, 110]  # GitHub Actions 老 Linux 不支持 124, 120/110 最稳定
 
     def __init__(self, sleep_time=2, max_attempt=6, enable_slider=False,
-                 reserve_next_day=False, captcha_type="auto"):
+                 reserve_next_day=False, captcha_type="auto", fast_mode=False):
         self.sleep_time = sleep_time
         self.max_attempt = max_attempt
         self.enable_slider = enable_slider
         self.reserve_next_day = reserve_next_day
         self.captcha_type = captcha_type
+        # 极速模式: 抢座期关闭"拟人延迟"，改为近 0 延迟狂点
+        self.fast_mode = fast_mode
 
         # ---- 动态指纹 ----
         ver = random.choice(self._CHROME_POOL)
@@ -133,12 +135,23 @@ class reserve:
     # ================================================================
 
     def _human_delay(self, lo=0.3, hi=2.0):
+        if self.fast_mode:
+            # 极速: 仅留极小抖动避免完全同步, 近乎 0 延迟
+            time.sleep(random.uniform(0.01, 0.05))
+            return
         time.sleep(lo + (hi - lo) * random.betavariate(2, 5))
 
     def _human_long_delay(self, lo=0.5, hi=3.5):
+        if self.fast_mode:
+            time.sleep(random.uniform(0.02, 0.08))
+            return
         time.sleep(lo + (hi - lo) * random.betavariate(2, 4))
 
     def _backoff(self, attempt):
+        if self.fast_mode:
+            # 极速: 退避也压到毫秒级, 争抢期一次 60s 退避 = 直接出局
+            time.sleep(random.uniform(0.1, 0.4))
+            return
         wait = min(2 ** attempt, 60)
         time.sleep(wait + random.uniform(0, wait * 0.5))
 
@@ -447,59 +460,71 @@ class reserve:
     # ================================================================
 
     def submit(self, times, roomid, seatid, action):
+        """多座位串行兜底: 一个座位失败立即试下一个 (备选座位)"""
+        if isinstance(seatid, str):
+            seatid = [seatid]
+        for seat in seatid:
+            if self.submit_single(seat, times, roomid, action):
+                return True
+        return False
+
+    def submit_single(self, seat, times, roomid, action, stop_event=None):
+        """单个座位的提交尝试 (含 token 获取 + 验证码 + 重试)"""
         self._human_delay(0.5, 2.0)
         consecutive_token_fails = 0
         session_refresh_count = 0
 
-        for seat in seatid:
-            for attempt in range(self.max_attempt):
-                # token 持续为空 → 立即全量刷新 Session
-                if consecutive_token_fails >= 1 and session_refresh_count < 2:
-                    logging.warning(f"Token 连续 {consecutive_token_fails} 次为空, "
-                                    f"刷新 Session (第 {session_refresh_count + 1}/2 次)")
+        for attempt in range(self.max_attempt):
+            if stop_event is not None and stop_event.is_set():
+                logging.info(f"Seat {seat}: 已有其它座位成功, 停止")
+                return False
+            # token 持续为空 → 立即全量刷新 Session
+            if consecutive_token_fails >= 1 and session_refresh_count < 2:
+                logging.warning(f"Token 连续 {consecutive_token_fails} 次为空, "
+                                f"刷新 Session (第 {session_refresh_count + 1}/2 次)")
+                if self._refresh_session():
+                    consecutive_token_fails = 0
+                    session_refresh_count += 1
+                    self._human_long_delay(1.0, 3.0)
+                    continue
+                else:
+                    logging.error("Session 刷新失败, 放弃本轮")
+                    break
+
+            token, value = self._get_page_token(
+                self.url.format(roomid, seat), require_value=True
+            )
+            if not token:
+                consecutive_token_fails += 1
+                logging.warning(f"No token (try {attempt + 1}, consecutive: {consecutive_token_fails})")
+                if self._stale_session:
+                    logging.warning("Session 已过期, 立即刷新")
+                    self._stale_session = False
                     if self._refresh_session():
                         consecutive_token_fails = 0
                         session_refresh_count += 1
-                        self._human_long_delay(1.0, 3.0)
-                        continue
-                    else:
-                        logging.error("Session 刷新失败, 放弃本轮")
-                        break
-
-                token, value = self._get_page_token(
-                    self.url.format(roomid, seat), require_value=True
-                )
-                if not token:
-                    consecutive_token_fails += 1
-                    logging.warning(f"No token (try {attempt + 1}, consecutive: {consecutive_token_fails})")
-                    if self._stale_session:
-                        logging.warning("Session 已过期, 立即刷新")
-                        self._stale_session = False
-                        if self._refresh_session():
-                            consecutive_token_fails = 0
-                            session_refresh_count += 1
-                            self._human_long_delay(1.0, 2.5)
-                        continue
-                    self._backoff(attempt)
+                        self._human_long_delay(1.0, 2.5)
                     continue
+                self._backoff(attempt)
+                continue
 
-                consecutive_token_fails = 0
-                logging.info(f"Get token: {token}")
+            consecutive_token_fails = 0
+            logging.info(f"Get token: {token}")
 
-                captcha = ""
-                if self.enable_slider:
-                    captcha = self.resolve_captcha()
-                    if captcha:
-                        logging.info(f"Captcha token {captcha}")
-                    else:
-                        logging.warning("Captcha fail, 尝试无验证码提交")
+            captcha = ""
+            if self.enable_slider:
+                captcha = self.resolve_captcha()
+                if captcha:
+                    logging.info(f"Captcha token {captcha}")
+                else:
+                    logging.warning("Captcha fail, 尝试无验证码提交")
 
-                if self._do_submit(times, token, roomid, seat,
-                                   captcha, action, value):
-                    return True
-                self._human_delay(1.0, 3.0)
+            if self._do_submit(times, token, roomid, seat,
+                               captcha, action, value):
+                return True
+            self._human_delay(1.0, 3.0)
 
-            logging.warning(f"Seat {seat}: all attempts exhausted")
+        logging.warning(f"Seat {seat}: all attempts exhausted")
         return False
 
     def get_submit(self, url, times, token, roomid, seatid,

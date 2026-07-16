@@ -3,6 +3,8 @@ import time
 import argparse
 import os
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -11,119 +13,224 @@ logging.basicConfig(
 
 from utils import reserve, get_user_credentials
 
-get_current_time = lambda action: (
-    time.strftime("%H:%M:%S", time.localtime(time.time() + 8 * 3600))
-    if action
-    else time.strftime("%H:%M:%S", time.localtime(time.time()))
-)
-get_current_dayofweek = lambda action: (
-    time.strftime("%A", time.localtime(time.time() + 8 * 3600))
-    if action
-    else time.strftime("%A", time.localtime(time.time()))
-)
-
-
-SLEEPTIME = 0.0  # 每次抢座的间隔
-ENDTIME = "20:01:00"  # 根据学校的预约座位时间+1min即可
+# ============================================================
+#  极速版配置
+# ============================================================
+FAST_MODE = True           # 抢座期关闭"拟人延迟"，近 0 延迟狂点
+CONCURRENT_SEATS = True    # 多座位并发提交(每个座位独立 session)；单座位时无效果
+LOGIN_LEAD = 180           # 放票前多少秒开始登录预热(秒)，默认 3 分钟
+OPEN_HOUR, OPEN_MIN, OPEN_SEC = 20, 0, 0   # 放票时刻(北京时间)
+ENDTIME = "20:05:00"       # 放票后截止(北京时间)，预留 5 分钟重试窗口
 
 ENABLE_SLIDER = True       # 是否启用验证码
 CAPTCHA_TYPE = "auto"      # 验证码类型: "slide" | "click" | "auto"
-MAX_ATTEMPT = 5            # 最大尝试次数
+MAX_ATTEMPT = 8            # 单座位最大尝试次数(极速版可略多)
 RESERVE_NEXT_DAY = False   # 预约明天而不是今天的
+SLEEPTIME = 0.0            # 预留参数(已不生效，延迟由 FAST_MODE 控制)
 
 
-def login_and_reserve(users, usernames, passwords, action, success_list=None):
-    logging.info(
-        f"Global settings: \nSLEEPTIME: {SLEEPTIME}\nENDTIME: {ENDTIME}\n"
-        f"ENABLE_SLIDER: {ENABLE_SLIDER}\nCAPTCHA_TYPE: {CAPTCHA_TYPE}\n"
-        f"RESERVE_NEXT_DAY: {RESERVE_NEXT_DAY}"
+# ============================================================
+#  时间工具: 所有目标时间以"北京时间"表达
+#  action=True  → 服务器为 UTC，需在本地时间上 +8 得到北京时间
+#  action=False → 服务器已是中国时区，本地时间即北京时间
+# ============================================================
+def _tz_offset(action):
+    return 8 if action else 0
+
+
+def bj_now_ts(action):
+    return time.time() + _tz_offset(action) * 3600
+
+
+def bj_str(action):
+    return time.strftime("%H:%M:%S", time.localtime(bj_now_ts(action)))
+
+
+def bj_dayofweek(action):
+    return time.strftime("%A", time.localtime(bj_now_ts(action)))
+
+
+def target_epoch(h, m, s, action):
+    """今天北京时间 (h,m,s) 对应的 epoch 秒；若已过期则返回过去的时间(立即抢)"""
+    st = time.localtime(bj_now_ts(action))  # 字段已是北京时间
+    cand = time.struct_time(
+        (st.tm_year, st.tm_mon, st.tm_mday, h, m, s, 0, 0, -1)
     )
-    if action and len(usernames.split(",")) != len(users):
-        raise Exception("user number should match the number of config")
-    if success_list is None:
-        success_list = [False] * len(users)
-    current_dayofweek = get_current_dayofweek(action)
-    for index, user in enumerate(users):
-        username, password, times, roomid, seatid, daysofweek = user.values()
-        if action:
-            username, password = (
-                usernames.split(",")[index],
-                passwords.split(",")[index],
-            )
-        if current_dayofweek not in daysofweek:
-            logging.info("Today not set to reserve")
-            continue
-        if not success_list[index]:
-            logging.info(
-                f"----------- {username} -- {times} -- {seatid} try -----------"
-            )
-            s = reserve(
-                sleep_time=SLEEPTIME,
-                max_attempt=MAX_ATTEMPT,
-                enable_slider=ENABLE_SLIDER,
-                reserve_next_day=RESERVE_NEXT_DAY,
-                captcha_type=CAPTCHA_TYPE,
-            )
-            s.get_login_status()
-            s.login(username, password)
-            s.requests.headers.update({"Host": "office.chaoxing.com"})
-            suc = s.submit(times, roomid, seatid, action)
-            success_list[index] = suc
-    return success_list
+    return time.mktime(cand) - _tz_offset(action) * 3600
 
 
-def main(users, action=False):
-    current_time = get_current_time(action)
-    logging.info(f"start time {current_time}, action {'on' if action else 'off'}")
-    attempt_times = 0
-    usernames, passwords = None, None
+def _get_creds(user, index, action, usernames, passwords):
     if action:
-        usernames, passwords = get_user_credentials(action)
-    success_list = None
-    current_dayofweek = get_current_dayofweek(action)
-    today_reservation_num = sum(
-        1 for d in users if current_dayofweek in d.get("daysofweek")
+        return usernames.split(",")[index], passwords.split(",")[index]
+    return user.get("username"), user.get("password")
+
+
+def _make_reserve():
+    return reserve(
+        sleep_time=SLEEPTIME,
+        max_attempt=MAX_ATTEMPT,
+        enable_slider=ENABLE_SLIDER,
+        reserve_next_day=RESERVE_NEXT_DAY,
+        captcha_type=CAPTCHA_TYPE,
+        fast_mode=FAST_MODE,
     )
 
 
-    target_hour = 19
-    target_minute = 59
-    target_second = 44
-    target_wait=0
-    logging.info(f"等待到 {target_hour:02d}:{target_minute:02d}:{target_second:02d} 再开始抢座...")
+def _warmup_login(user, index, action, usernames, passwords):
+    """预热: 建立 session + 登录，返回已登录的 reserve 实例(失败返回 None)"""
+    username, password = _get_creds(user, index, action, usernames, passwords)
+    s = _make_reserve()
+    s.get_login_status()
+    ok, msg = s.login(username, password)
+    if not ok:
+        logging.error(f"预热登录失败 {username}: {msg}")
+        return None
+    s.requests.headers.update({"Host": "office.chaoxing.com"})
+    return s
 
+
+# ============================================================
+#  主流程
+# ============================================================
+def main(users, action=False):
+    logging.info(
+        f"极速版配置: FAST_MODE={FAST_MODE} CONCURRENT_SEATS={CONCURRENT_SEATS} "
+        f"OPEN={OPEN_HOUR:02d}:{OPEN_MIN:02d}:{OPEN_SEC:02d} ENDTIME={ENDTIME} "
+        f"LOGIN_LEAD={LOGIN_LEAD}s"
+    )
+    usernames, passwords = (get_user_credentials(action) if action else (None, None))
+    current_dow = bj_dayofweek(action)
+    today = [(i, u) for i, u in enumerate(users) if current_dow in u.get("daysofweek")]
+    if not today:
+        logging.info("今天没有安排抢座")
+        return
+
+    today_reservation_num = len(today)
+    success_list = [False] * len(users)
+    attempt_times = 0
+
+    # ---- 2) 计算放票时刻, 并把登录预热控制在放票前 LOGIN_LEAD 秒内 ----
+    open_e = target_epoch(OPEN_HOUR, OPEN_MIN, OPEN_SEC, action)
+    warmup_at = open_e - LOGIN_LEAD
+    pre = time.time()
+    if pre < warmup_at:
+        wait_pre = warmup_at - pre
+        logging.info(f"距放票尚早, 先休眠 {wait_pre:.0f}s 后再登录预热(避免 session 过早过期)...")
+        time.sleep(wait_pre)
+    elif pre > open_e:
+        logging.warning("启动已过放票时刻, 立即开抢!")
+    else:
+        logging.info("已临近放票, 直接登录预热")
+
+    # ---- 1) 登录预热 ----
+    logging.info(f"开始登录预热, 今日共 {today_reservation_num} 个账号...")
+    warmed = {}  # index -> reserve 实例 (已登录)
+    for i, user in today:
+        s = _warmup_login(user, i, action, usernames, passwords)
+        if s is not None:
+            warmed[i] = s
+            logging.info(f"  预热成功: {user.get('username', '?')}")
+        else:
+            logging.warning(f"  预热失败: {user.get('username', '?')}, 将在开抢前重试")
+
+    # ---- 3) 精确等到放票时刻(准点提交) ----
+    logging.info(f"等待到 {OPEN_HOUR:02d}:{OPEN_MIN:02d}:{OPEN_SEC:02d} (北京) 再开抢...")
     while True:
-        now_ts = time.time() + (8 * 3600 if action else 0)
-        now = time.localtime(now_ts)
-        if (now.tm_hour == target_hour and
-            now.tm_min == target_minute and
-            now.tm_sec >= target_second):
+        remaining = open_e - time.time()
+        if remaining <= 0:
             break
-        time.sleep(0.5)
-        target_wait=target_wait+1
-        if(target_wait%10==0):
-            logging.info("wait ")
+        if remaining > 0.1:
+            time.sleep(0.03)
+        # 最后 100ms 内忙等, 保证卡点精度
+    logging.info(f"时间到! 当前 {bj_str(action)} 开始抢座!")
 
-    logging.info("时间到！开始抢座！")
+    # 开抢前再补一次未成功的登录
+    for i, user in today:
+        if i not in warmed:
+            s = _warmup_login(user, i, action, usernames, passwords)
+            if s is not None:
+                warmed[i] = s
 
-    while current_time < ENDTIME:
+    end_e = target_epoch(*map(int, ENDTIME.split(":")), action)
+
+    # ---- 3) 抢座循环, 直到全部成功或超时 ----
+    while time.time() < end_e:
         attempt_times += 1
-        current_time = get_current_time(action)
-        logging.info(f"=== 第 {attempt_times} 轮开始 ({current_time}) ===")
-        # try:
-        success_list = login_and_reserve(
-            users, usernames, passwords, action, success_list
-        )
-        # except Exception as e:
-        #     print(f"An error occurred: {e}")
-        logging.info(
-            f"=== 第 {attempt_times} 轮结束, time={current_time}, success={success_list} ==="
-        )
-        if sum(success_list) == today_reservation_num:
+        logging.info(f"=== 第 {attempt_times} 轮 ({bj_str(action)}) ===")
+        all_done = True
+        for i, user in today:
+            if success_list[i]:
+                continue
+            all_done = False
+            username, password = _get_creds(user, i, action, usernames, passwords)
+            _, times, roomid, seatid, daysofweek = (
+                user.get("username"), user["time"], user["roomid"],
+                user["seatid"], user["daysofweek"]
+            )
+            if isinstance(seatid, str):
+                seatid = [seatid]
+
+            s = warmed.get(i)
+            if s is None:
+                s = _warmup_login(user, i, action, usernames, passwords)
+                if s is None:
+                    logging.error(f"{username} 登录始终失败, 跳过")
+                    continue
+                warmed[i] = s
+
+            if CONCURRENT_SEATS and len(seatid) > 1:
+                success_list[i] = _grab_concurrent(s, seatid, times, roomid, action)
+            else:
+                success_list[i] = s.submit(times, roomid, seatid, action)
+
+            logging.info(f"{username} 本轮结果: {success_list[i]}")
+
+        if all_done or sum(success_list) == today_reservation_num:
             logging.info("全部预约成功!")
             return
 
+    logging.warning(f"到达截止时间仍未全部成功: {success_list}")
 
+
+def _grab_concurrent(template, seatid, times, roomid, action):
+    """多座位并发: 每个座位独立 session + 独立登录, 任一成功即停止其余"""
+    logging.info(f"并发提交 {len(seatid)} 个座位...")
+    instances = []
+    for seat in seatid:
+        s = _make_reserve()
+        s.get_login_status()
+        ok, msg = s.login(template._username, template._password)
+        if not ok:
+            logging.warning(f"座位 {seat} 实例登录失败: {msg}")
+            continue
+        s.requests.headers.update({"Host": "office.chaoxing.com"})
+        instances.append((seat, s))
+
+    if not instances:
+        return False
+    if len(instances) == 1:
+        seat, s = instances[0]
+        return s.submit_single(seat, times, roomid, action)
+
+    stop = threading.Event()
+    ok = False
+    with ThreadPoolExecutor(max_workers=len(instances)) as ex:
+        futs = {
+            ex.submit(s.submit_single, seat, times, roomid, action, stop): seat
+            for seat, s in instances
+        }
+        for fut in as_completed(futs):
+            if fut.result():
+                ok = True
+                stop.set()
+                logging.info(f"座位 {futs[fut]} 成功, 停止其余并发")
+                break
+    return ok
+
+
+# ============================================================
+#  Debug / Room 模式(保留, 不受极速模式影响)
+# ============================================================
 def debug(users, action=False):
     logging.info(
         f"Global settings: \nSLEEPTIME: {SLEEPTIME}\nENDTIME: {ENDTIME}\n"
@@ -134,7 +241,7 @@ def debug(users, action=False):
     logging.info(f" Debug Mode start! , action {'on' if action else 'off'}")
     if action:
         usernames, passwords = get_user_credentials(action)
-    current_dayofweek = get_current_dayofweek(action)
+    current_dayofweek = bj_dayofweek(action)
     for index, user in enumerate(users):
         username, password, times, roomid, seatid, daysofweek = user.values()
         if type(seatid) == str:
@@ -156,7 +263,7 @@ def debug(users, action=False):
             captcha_type=CAPTCHA_TYPE,
         )
         s.get_login_status()
-        s.login(username, password)
+        s.login(username=username, password=password)
         s.requests.headers.update({"Host": "office.chaoxing.com"})
         try:
             suc = s.submit(times, roomid, seatid, action)
@@ -199,7 +306,8 @@ if __name__ == "__main__":
         "-a",
         "--action",
         action="store_true",
-        help="use --action to enable in github action",
+        help="use --action if server is UTC (adds +8h to interpret times as Beijing); "
+             "if server already uses China timezone, run WITHOUT --action",
     )
     args = parser.parse_args()
     func_dict = {"reserve": main, "debug": debug, "room": get_roomid}
