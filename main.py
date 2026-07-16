@@ -17,14 +17,14 @@ from utils import reserve, get_user_credentials
 #  极速版配置
 # ============================================================
 FAST_MODE = True           # 抢座期关闭"拟人延迟"，近 0 延迟狂点
-CONCURRENT_SEATS = True    # 多座位并发提交(每个座位独立 session)；单座位时无效果
+CONCURRENT_SEATS = False   # 多座位串行兜底(当前被占→约下一个备用); 设 True 则并发抢(可能同时约中多个)
 LOGIN_LEAD = 180           # 放票前多少秒开始登录预热(秒)，默认 3 分钟
 OPEN_HOUR, OPEN_MIN, OPEN_SEC = 20, 0, 0    # 正式抢座放票时刻(北京时间) = 20:00:00 准时开抢
 ENDTIME = "20:05:00"       # 放票后截止(北京时间) 5 分钟窗口
 
 ENABLE_SLIDER = True       # 是否启用验证码
 CAPTCHA_TYPE = "auto"      # 验证码类型: "slide" | "click" | "auto"
-MAX_ATTEMPT = 8            # 单座位最大尝试次数(极速版可略多)
+MAX_ATTEMPT = 3            # 单座位最大尝试次数(极速版可略多)
 RESERVE_NEXT_DAY = False   # 预约明天而不是今天的
 SLEEPTIME = 0.0            # 预留参数(已不生效，延迟由 FAST_MODE 控制)
 
@@ -178,10 +178,14 @@ def main(users, action=False):
                     continue
                 warmed[i] = s
 
-            if CONCURRENT_SEATS and len(seatid) > 1:
-                success_list[i] = _grab_concurrent(s, seatid, times, roomid, action)
-            else:
-                success_list[i] = s.submit(times, roomid, seatid, action)
+            try:
+                if CONCURRENT_SEATS and len(seatid) > 1:
+                    success_list[i] = _grab_concurrent(s, seatid, times, roomid, action)
+                else:
+                    success_list[i] = s.submit(times, roomid, seatid, action)
+            except reserve.SeatTakenError:
+                logging.warning(f"{username} 座位 {seatid} 已被他人预约, 终止任务!")
+                return
 
             logging.info(f"{username} 本轮结果: {success_list[i]}")
 
@@ -219,13 +223,26 @@ def _grab_concurrent(template, seatid, times, roomid, action):
             ex.submit(s.submit_single, seat, times, roomid, action, stop): seat
             for seat, s in instances
         }
+        taken = 0
+        total = len(instances)
         for fut in as_completed(futs):
-            if fut.result():
+            try:
+                res = fut.result()
+            except reserve.SeatTakenError:
+                taken += 1
+                logging.warning(f"座位 {futs[fut]} 已被他人预约, 跳过该备选")
+                continue
+            if res:
                 ok = True
                 stop.set()
                 logging.info(f"座位 {futs[fut]} 成功, 停止其余并发")
                 break
-    return ok
+        if ok:
+            return True
+        if total and taken == total:
+            # 并发的所有座位都被他人占了 → 上层应终止
+            raise reserve.SeatTakenError("全部备选座位均被他人预约")
+        return ok
 
 
 # ============================================================
