@@ -1,0 +1,4 @@
+cryptography
+requests
+opencv-python
+curl_cffi
