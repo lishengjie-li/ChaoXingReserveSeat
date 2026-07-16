@@ -15,6 +15,25 @@ import datetime
 import random
 
 
+# ================================================================
+#  座位被他人预约 → 终止任务
+# ================================================================
+# 命中以下任一提示词即视为"被别人占了"，不再无意义狂刷，由上层终止任务
+STOP_ON_SEAT_TAKEN = True
+
+
+class SeatTakenError(Exception):
+    """座位已被他人预约，上层应据此终止任务"""
+    pass
+
+
+SEAT_TAKEN_HINTS = (
+    "被预约", "被占", "被别人", "被占用",
+    "已满", "没有空位", "无空位", "已约满",
+    "该座位已", "此座位已", "座位已被",
+)
+
+
 def get_date(day_offset: int = 0):
     today = datetime.datetime.now().date()
     return (today + datetime.timedelta(days=day_offset)).strftime("%Y-%m-%d")
@@ -460,12 +479,24 @@ class reserve:
     # ================================================================
 
     def submit(self, times, roomid, seatid, action):
-        """多座位串行兜底: 一个座位失败立即试下一个 (备选座位)"""
+        """多座位串行兜底(备选座位): 当前座位被他人占 → 立即试下一个;
+        仅当所有备选都被他人预约时才抛 SeatTakenError 交由上层终止"""
         if isinstance(seatid, str):
             seatid = [seatid]
+        all_taken = True
+        tried = False
         for seat in seatid:
-            if self.submit_single(seat, times, roomid, action):
-                return True
+            tried = True
+            try:
+                if self.submit_single(seat, times, roomid, action):
+                    return True
+            except SeatTakenError:
+                logging.warning(f"座位 {seat} 被他人预约, 尝试下一个备选...")
+                continue
+            # submit_single 返回 False = 瞬错/未成, 不算"被占"
+            all_taken = False
+        if tried and all_taken:
+            raise SeatTakenError("全部备选座位均被他人预约")
         return False
 
     def submit_single(self, seat, times, roomid, action, stop_event=None):
@@ -574,4 +605,15 @@ class reserve:
         except json.JSONDecodeError:
             logging.error(f"Bad JSON: {raw[:200]}")
             return False
-        return result.get("success", False)
+        if result.get("success", False):
+            return True
+        # 已有预约 = 本账号已占位, 视为达成目标, 停止重试
+        msg = result.get("msg", "") or ""
+        if ("已有预约" in msg) or ("已预约" in msg) or ("已经预约" in msg):
+            logging.info(f"该时段已被本账号预约, 视为成功, 停止重试: {msg}")
+            return True
+        # 座位被他人预约 → 抛异常, 上层据此终止任务(不再无意义狂刷)
+        if STOP_ON_SEAT_TAKEN and any(hint in msg for hint in SEAT_TAKEN_HINTS):
+            logging.warning(f"[终止] 座位被他人预约: {msg}")
+            raise SeatTakenError(msg)
+        return False
