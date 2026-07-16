@@ -19,8 +19,8 @@ from utils import reserve, get_user_credentials
 FAST_MODE = True           # 抢座期关闭"拟人延迟"，近 0 延迟狂点
 CONCURRENT_SEATS = True    # 多座位并发提交(每个座位独立 session)；单座位时无效果
 LOGIN_LEAD = 180           # 放票前多少秒开始登录预热(秒)，默认 3 分钟
-OPEN_HOUR, OPEN_MIN, OPEN_SEC = 20, 0, 0   # 放票时刻(北京时间)
-ENDTIME = "20:05:00"       # 放票后截止(北京时间)，预留 5 分钟重试窗口
+OPEN_HOUR, OPEN_MIN, OPEN_SEC = 0, 0, 0    # 放票时刻(北京时间)。测试: 设0点=立即开抢; 正式抢座改回 20,0,0
+ENDTIME = "23:59:00"       # 放票后截止(北京时间)。测试: 拉到今晚; 正式抢座改回 "20:05:00"
 
 ENABLE_SLIDER = True       # 是否启用验证码
 CAPTCHA_TYPE = "auto"      # 验证码类型: "slide" | "click" | "auto"
