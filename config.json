@@ -16,7 +16,7 @@
     },
         {"username": "******",
         "password": "******",
-        "time": ["07:00","08:00"],
+        "time": ["17:00","22:30"],
         "roomid":"13480",
         "seatid":["626"],
         "daysofweek": ["Wednesday","Thursday"]
@@ -25,7 +25,7 @@
     },
          {"username": "******",
         "password": "******",
-        "time": ["08:00","22:30"],
+        "time": ["17:00","22:30"],
         "roomid":"13480",
         "seatid":["626"],
         "daysofweek": ["Friday"]
