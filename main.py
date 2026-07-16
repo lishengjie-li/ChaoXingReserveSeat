@@ -21,6 +21,7 @@ CONCURRENT_SEATS = False   # 多座位串行兜底(当前被占→约下一个�
 LOGIN_LEAD = 180           # 放票前多少秒开始登录预热(秒)，默认 3 分钟
 OPEN_HOUR, OPEN_MIN, OPEN_SEC = 20, 0, 0    # 正式抢座放票时刻(北京时间) = 20:00:00 准时开抢
 ENDTIME = "20:05:00"       # 放票后截止(北京时间) 5 分钟窗口
+GRACE_SECONDS = 180       # 启动时已过 ENDTIME 的宽限尝试时长(秒): 用于过晚触发/手动测试, 避免一次都不抢就放弃
 
 ENABLE_SLIDER = True       # 是否启用验证码
 CAPTCHA_TYPE = "auto"      # 验证码类型: "slide" | "click" | "auto"
@@ -152,6 +153,11 @@ def main(users, action=False):
                 warmed[i] = s
 
     end_e = target_epoch(*map(int, ENDTIME.split(":")), action)
+    # 宽限: 若启动时已过 ENDTIME(手动触发过晚/调度延迟), 仍给予一段时间尝试,
+    # 避免"一次都不抢就直接放弃"。正常 20:00 前触发的场景 end_e 在未来, 不受影响。
+    if time.time() >= end_e:
+        logging.warning(f"启动已过 ENDTIME({ENDTIME}), 改为宽限 {GRACE_SECONDS}s 内尝试抢座")
+        end_e = time.time() + GRACE_SECONDS
 
     # ---- 3) 抢座循环, 直到全部成功或超时 ----
     while time.time() < end_e:
