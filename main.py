@@ -12,6 +12,7 @@ logging.basicConfig(
 
 
 from utils import reserve, get_user_credentials
+from utils.reserve import SeatTakenError
 
 # ============================================================
 #  极速版配置
@@ -189,7 +190,7 @@ def main(users, action=False):
                     success_list[i] = _grab_concurrent(s, seatid, times, roomid, action)
                 else:
                     success_list[i] = s.submit(times, roomid, seatid, action)
-            except reserve.SeatTakenError:
+            except SeatTakenError:
                 logging.warning(f"{username} 座位 {seatid} 已被他人预约, 终止任务!")
                 return
 
@@ -234,7 +235,7 @@ def _grab_concurrent(template, seatid, times, roomid, action):
         for fut in as_completed(futs):
             try:
                 res = fut.result()
-            except reserve.SeatTakenError:
+            except SeatTakenError:
                 taken += 1
                 logging.warning(f"座位 {futs[fut]} 已被他人预约, 跳过该备选")
                 continue
@@ -247,7 +248,7 @@ def _grab_concurrent(template, seatid, times, roomid, action):
             return True
         if total and taken == total:
             # 并发的所有座位都被他人占了 → 上层应终止
-            raise reserve.SeatTakenError("全部备选座位均被他人预约")
+            raise SeatTakenError("全部备选座位均被他人预约")
         return ok
 
 
