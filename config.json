@@ -4,21 +4,21 @@
         "password": "*******",
         "time": ["17:00","22:30"],
         "roomid":"13480",
-        "seatid":["626"],
+        "seatid":["634"],
         "daysofweek": [ "Monday"]
     },
         {"username": "*****",
         "password": "******",
         "time": ["17:00","22:30"],
         "roomid":"13480",
-        "seatid":["626"],
+        "seatid":["634"],
         "daysofweek": ["Tuesday"]
     },
         {"username": "******",
         "password": "******",
         "time": ["17:00","22:30"],
         "roomid":"13480",
-        "seatid":["626"],
+        "seatid":["634"],
         "daysofweek": ["Wednesday","Thursday"]
 
             
@@ -27,7 +27,7 @@
         "password": "******",
         "time": ["08:00","22:30"],
         "roomid":"13480",
-        "seatid":["626","622"],
+        "seatid":["634"],
         "daysofweek": ["Friday"]
 
             
@@ -36,7 +36,7 @@
         "password": "******",
         "time": ["08:00","22:30"],
         "roomid":"13480",
-        "seatid":["626"],
+        "seatid":["634"],
         "daysofweek": ["Saturday"]
 
             
@@ -45,7 +45,7 @@
         "password": "*******",
         "time": ["17:00","22:30"],
         "roomid":"13480",
-        "seatid":["626"],
+        "seatid":["634"],
         "daysofweek": ["Sunday"]
     }
     ]
