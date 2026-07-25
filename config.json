@@ -5,49 +5,6 @@
         "time": ["07:00","08:00"],
         "roomid":"13480",
         "seatid":["634"],
-        "daysofweek": [ "Monday"]
-    },
-        {"username": "*****",
-        "password": "******",
-       "time": ["07:00","08:00"],
-        "roomid":"13480",
-        "seatid":["634"],
-        "daysofweek": ["Tuesday"]
-    },
-        {"username": "******",
-        "password": "******",
-       "time": ["07:00","08:00"],
-        "roomid":"13480",
-        "seatid":["634"],
-        "daysofweek": ["Wednesday","Thursday"]
-
-            
-    },
-         {"username": "******",
-        "password": "******",
-        "time": ["07:00","08:00"],
-        "roomid":"13480",
-        "seatid":["634"],
-        "daysofweek": ["Friday"]
-
-            
-    },     
-        {"username": "******",
-        "password": "******",
-        "time": ["07:00","08:00"],
-        "roomid":"13480",
-        "seatid":["634"],
-        "daysofweek": ["Saturday"]
-
-            
-    },
-        {"username": "*******",
-        "password": "*******",
-        "time": ["07:00","08:00"],
-        "roomid":"13480",
-        "seatid":["634"],
-        "daysofweek": ["Sunday"]
+        "daysofweek": [ "Monday"，"Thuesday","Wendsday","Thursday","Friday","Saturday","Sunday"]
     }
-    ]
-
 }
