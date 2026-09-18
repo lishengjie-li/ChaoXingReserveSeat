@@ -1,0 +1,63 @@
+name: preflight_test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+          cache: pip
+
+      - name: install dependency
+        run: |
+          python -m pip install --upgrade pip
+          sudo apt-get update
+          sudo apt-get install build-essential libssl-dev libffi-dev python3-dev libgl1 libglib2.0-0 -y
+          pip install cryptography requests opencv-python curl_cffi
+
+      - name: preflight (login + room check)
+        env:
+          USERNAMES: ${{ secrets.USERNAMES }}
+          PASSWORDS: ${{ secrets.PASSWORDS }}
+        run: |
+          python - <<'PY'
+          import os, sys, json
+          from utils.reserve import reserve
+
+          us = [x.strip() for x in (os.environ.get("USERNAMES") or "").split(",")]
+          ps = [x.strip() for x in (os.environ.get("PASSWORDS") or "").split(",")]
+          print("USERNAMES entries:", len(us), "| empty?", [not x for x in us])
+          print("PASSWORDS entries:", len(ps), "| empty?", [not x for x in ps])
+          u, p = us[0], ps[0]
+          print("login as:", (u[:3] + "****" + u[-4:]) if len(u) > 7 else "(masked)")
+
+          s = reserve(reserve_next_day=True, fast_mode=True)
+          s.get_login_status()
+          ok, msg = s.login(u, p)
+          print("=== LOGIN:", ok, msg, "===")
+          if not ok:
+              sys.exit(1)
+
+          cfg = json.load(open("config.json", encoding="utf-8"))["reserve"][0]
+          room = str(cfg.get("roomid"))
+          seats = cfg.get("seatid") or []
+          print("config -> roomid:", room, "seatid:", seats, "time:", cfg.get("time"))
+          H = s._mk_op_headers(referer=s.home_url)
+          for seat in seats:
+              r = s._sess_op.get("https://office.chaoxing.com/data/apps/seat/reserve/info",
+                                 params={"id": room, "seatNum": str(seat)}, headers=H, timeout=15)
+              try:
+                  j = r.json()
+                  sr = j.get("data", {}).get("seatReserve")
+                  print("  seat", seat, "http=", r.status_code, "success=", j.get("success"), "现有预约=", "有" if sr else "无")
+              except Exception as e:
+                  print("  seat", seat, "http=", r.status_code, "parse_err=", e)
+          print("=== PREFLIGHT DONE ===")
+          PY
