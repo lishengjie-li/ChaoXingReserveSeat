@@ -1,10 +1,8 @@
 name: auto_Reserve
 
 on:
-  schedule:
-    # UTC 11:45 = 北京时间 19:45（放票 20:00 = UTC 12:00）
-    # 提前 15 分钟启动，留给 runner 排队 + 登录预热的时间
-    - cron: '45 11 * * *'
+  # 定时由外部 cron-job.org 调用 dispatch API 负责（北京 19:50）。
+  # ⚠️ 不要在这里加 schedule —— 会和 cron-job.org 重复触发，导致一天跑两次。
   workflow_dispatch:
     inputs:
       profile:
@@ -34,6 +32,29 @@ jobs:
           cache: pip
 
       - name: install dependency
+        run: |
+          python -m pip install --upgrade pip
+          # Ubuntu 24.04 正确包名：libgl1 替代废弃的 libgl1-mesa-glx
+          # runner 无 GUI，用 opencv-python-headless 避免 libGL 缺失报错
+          sudo apt-get update
+          sudo apt-get install build-essential libssl-dev libffi-dev python3-dev libgl1 libglib2.0-0 -y
+          pip install cryptography requests opencv-python-headless curl_cffi numpy
+
+      - name: run script
+        env:
+          USERNAMES: ${{ secrets.USERNAMES }}
+          PASSWORDS: ${{ secrets.PASSWORDS }}
+        run: |
+          ARGS="-m reserve --action"
+          if [ -n "${{ github.event.inputs.offset }}" ]; then
+            ARGS="$ARGS --offset ${{ github.event.inputs.offset }}"
+          elif [ -n "${{ github.event.inputs.profile }}" ]; then
+            ARGS="$ARGS --profile ${{ github.event.inputs.profile }}"
+          else
+            ARGS="$ARGS --profile human"
+          fi
+          echo "run: python main.py $ARGS"
+          python main.py $ARGS
         run: |
           python -m pip install --upgrade pip
           # Ubuntu 24.04 正确包名：libgl1 替代废弃的 libgl1-mesa-glx
