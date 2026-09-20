@@ -1,28 +1,4 @@
-# -*- coding: utf-8 -*-
-"""
-超星图书馆座位预约 — utils/reserve.py (GitHub Actions 版)
-=============================================================
-本文件与服务器生产版功能对齐(全量同步), 仅做 GitHub runner 适配:
-  - 出口层仅为直连 (PROXY_TIERS_R = [None]); 服务器上的三层代理
-    (手机 gost / PC 反向 SOCKS) 在本文件中为注释保留, 未启用。
-    原因: 该三层代理绑定本机网段(10.7.0.2 / 127.0.0.1), GitHub runner 不可达。
-  - 无本地文件读写、无环境变量依赖。
-  - 行尾统一为 LF。
 
-已包含的抢座增强(原 GitHub 版缺失, 本次同步补齐):
-  _pace()                  首击时刻卡点 (配合 main.py 的 PACED_FIRE_OFFSET)
-  prewarm_fire()           选座链预热, 把 20:00 首个 token GET 从 ~4s 压到 ~300ms
-  keepalive_ping()         空等期心跳保活, 防 NAT/服务端回收长连接
-  _init_device_identity()  每账号固定一套 App 设备身份(机型/schild/语言)
-  _submit_day()            预约日期计算
-  _mk_app_xhr_headers()    App 同款 XHR 头
-  _app_ref_select()        App 同款 select 页 Referer
-  app_select_chain()       12 步真实调用链
-  ...
-
-⚠️ 注意: 本文件为抢座链路专用。签到(_sign.py / _schedule_sign.py)不在此仓库,
-   抢到座位后**不会自动签到**, 需自行到馆签到, 否则记违约。
-"""
 
 from utils import AES_Encrypt, generate_captcha_key, verify_param
 import json
